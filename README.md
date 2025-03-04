@@ -71,8 +71,9 @@ Reddit、Hacker News、GitHub Trending、技術ブログ、学術論文など多
 - 以下のAPIキー:
   - Google Gemini API キー（有償）
   - Reddit API キー（クライアントID、クライアントシークレット）
-
 </details>
+
+_このアプリはAWSを使用します。ローカルで完結させたい場合は、海行（うみゆき）さんの[フォークしたリポジトリ](https://github.com/umiyuki/nook)をご利用ください。_
 
 ### クイックスタート
 
