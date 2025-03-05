@@ -35,14 +35,6 @@ class NookStack(Stack):
             removal_policy=RemovalPolicy.DESTROY,
             auto_delete_objects=True,
         )
-        # UTC 00:00
-        daily_0_oclock_cron_rule = events.Rule(
-            self,
-            id="Daily0OClockRule",
-            schedule=events.Schedule.cron(
-                minute="0", hour="0", month="*", week_day="*", year="*"
-            ),
-        )
 
         # Create the common utils layer
         common_utils_layer = LayerVersion(
@@ -69,7 +61,7 @@ class NookStack(Stack):
             description="Common dependencies",
         )
 
-        for app_name in information_retriever_names.__dict__.values():
+        for i, app_name in enumerate(information_retriever_names.__dict__.values()):
             if app_name in [information_retriever_names.tech_feed]:
                 lambda_function = _lambda.DockerImageFunction(
                     self,
@@ -125,6 +117,15 @@ class NookStack(Stack):
                     layers=[common_utils_layer],
                 )
 
+            # UTC 23:00 (JST 8:00) から5分おき
+            daily_23_oclock_cron_rule = events.Rule(
+                self,
+                id=f"Daily23OClockRule{i}",
+                schedule=events.Schedule.cron(
+                    minute=f"{5 * i}", hour="23", month="*", week_day="*", year="*"
+                ),
+            )
+
             lambda_function.add_function_url(
                 auth_type=_lambda.FunctionUrlAuthType.NONE,
                 cors=_lambda.FunctionUrlCorsOptions(
@@ -145,6 +146,6 @@ class NookStack(Stack):
                 case information_retriever_names.viewer:
                     pass
                 case _:
-                    daily_0_oclock_cron_rule.add_target(
+                    daily_23_oclock_cron_rule.add_target(
                         targets.LambdaFunction(lambda_function)
                     )
