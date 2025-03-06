@@ -117,12 +117,12 @@ class NookStack(Stack):
                     layers=[common_utils_layer],
                 )
 
-            # UTC 23:00 (JST 8:00) から5分おき
-            daily_23_oclock_cron_rule = events.Rule(
+            # UTC 0:00 (JST 9:00) から5分おき
+            daily_0_oclock_cron_rule = events.Rule(
                 self,
-                id=f"Daily23OClockRule{i}",
+                id=f"Daily0OClockRule{i}",
                 schedule=events.Schedule.cron(
-                    minute=f"{5 * i}", hour="23", month="*", week_day="*", year="*"
+                    minute=f"{5 * i}", hour="0", month="*", week_day="*", year="*"
                 ),
             )
 
@@ -146,6 +146,6 @@ class NookStack(Stack):
                 case information_retriever_names.viewer:
                     pass
                 case _:
-                    daily_23_oclock_cron_rule.add_target(
+                    daily_0_oclock_cron_rule.add_target(
                         targets.LambdaFunction(lambda_function)
                     )
