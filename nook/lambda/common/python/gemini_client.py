@@ -68,7 +68,7 @@ class GeminiClient:
 
     @retry(
         stop=stop_after_attempt(5),
-        wait=wait_exponential(multiplier=1, min=4, max=60),
+        wait=wait_exponential(multiplier=2, min=10, max=60),
         retry=retry_if_exception(lambda e: isinstance(e, ClientError)),  # ClientErrorを条件に
         before_sleep=lambda retry_state: logger.info(f"Retrying due to {retry_state.outcome.exception()}...")
     )

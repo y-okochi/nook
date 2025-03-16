@@ -135,7 +135,7 @@ class PaperSummarizer:
 
         markdowns = []
         # Process papers concurrently because it takes longer than Lambda's timeout
-        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
             markdowns = list(
                 tqdm(
                     executor.map(self._process_paper, new_arxiv_ids),

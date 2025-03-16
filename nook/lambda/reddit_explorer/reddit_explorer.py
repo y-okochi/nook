@@ -4,6 +4,7 @@ import traceback
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Any, Literal
+import time
 
 import boto3
 import praw
@@ -80,6 +81,7 @@ class RedditExplorer:
                 post.comments = self._retrieve_top_comments_of_post(post.id)
                 post.summary = self._summarize_reddit_post(post)
                 markdowns.append(self._stylize_post(post))
+                time.sleep(5)
 
         self._store_summaries(markdowns)
 
