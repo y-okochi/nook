@@ -117,12 +117,12 @@ class NookStack(Stack):
                     layers=[common_utils_layer],
                 )
 
-            # UTC 0:00 (JST 9:00) から5分おき
+            # UTC 0:00 (JST 9:00) から10分おき
             daily_0_oclock_cron_rule = events.Rule(
                 self,
                 id=f"Daily0OClockRule{i}",
                 schedule=events.Schedule.cron(
-                    minute=f"{5 * i}", hour="0", month="*", week_day="*", year="*"
+                    minute=f"{10 * i}", hour="0", month="*", week_day="*", year="*"
                 ),
             )
 
