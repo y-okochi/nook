@@ -11,11 +11,31 @@ from typing import Any
 from google import genai
 from google.genai import types
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
-from google.genai.errors import ClientError
+from google.genai.errors import APIError
 import logging
+import json
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+def _log_retry_attempt(retry_state):
+    """
+    Log retry attempt details.
+
+    Parameters
+    ----------
+    retry_state : tenacity.RetryCallState
+        The state of the retry.
+    """
+    exception = retry_state.outcome.exception()
+    attempt = retry_state.attempt_number
+    wait_time = retry_state.next_action.sleep
+
+    logger.warning(
+        f"API error (attempt {attempt}). Waiting {wait_time:.2f}s before retry. "
+        f"Error: {exception}"
+    )
 
 
 @dataclass
@@ -67,10 +87,10 @@ class GeminiClient:
         self._chat = None
 
     @retry(
-        stop=stop_after_attempt(5),
-        wait=wait_exponential(multiplier=2, min=10, max=60),
-        retry=retry_if_exception(lambda e: isinstance(e, ClientError)),  # ClientErrorを条件に
-        before_sleep=lambda retry_state: logger.info(f"Retrying due to {retry_state.outcome.exception()}...")
+        stop=stop_after_attempt(7),
+        wait=wait_exponential(multiplier=3, min=15, max=120),
+        retry=retry_if_exception(lambda e: isinstance(e, APIError)),
+        before_sleep=_log_retry_attempt,
     )
     def generate_content(
         self,
