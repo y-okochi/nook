@@ -111,6 +111,37 @@ def extract_links(text: str) -> list[str]:
     urls = re.findall(r"(?<![\(\[])(https?://[^\s\)]+)", text)
 
     return [url for _, url in markdown_links] + urls
+def extract_figure_urls(text: str) -> list[tuple[str, str]]:
+    """
+    Markdownテキストから論文の最も重要な図のURLとその説明を抽出する
+    
+    Parameters
+    ----------
+    text : str
+        Markdownテキスト
+        
+    Returns
+    -------
+    list[tuple[str, str]]
+        (URL, 説明) のタプルのリスト（最大1つ）
+    """
+    # 8番目のセクションを探す
+    section_match = re.search(r"## 8\. 論文の最も重要な図.*?\n(.*?)(?=\n##|\Z)", text, re.DOTALL)
+    if not section_match:
+        return []
+    
+    section_content = section_match.group(1).strip()
+    
+    # URLと説明を抽出
+    # 例: https://example.com/image.png - これは図1です
+    figure_match = re.search(r"(https?://[^\s]+) - (.*?)(?:\n|$)", section_content)
+    
+    if figure_match:
+        return [(figure_match.group(1), figure_match.group(2))]
+    
+    return []
+    
+    return figure_matches
 
 
 def fetch_url_content(url: str) -> str | None:
@@ -150,9 +181,65 @@ def fetch_markdown(app_name: str, date_str: str) -> str:
         # デバッグ用にMarkdownの内容をログに出力
         print(f"Fetched markdown for {key}:")
         print(md_content[:500])  # 最初の500文字だけ表示
+        
+        # paper_summarizerの場合、図のURLを抽出して表示用のHTMLを追加
+        if app_name == "paper_summarizer":
+            md_content = process_paper_figures(md_content)
+            
         return md_content
     except Exception as e:
         return f"Error fetching {key}: {e}"
+
+
+def process_paper_figures(md_content: str) -> str:
+    """
+    論文の最も重要な図のURLを抽出し、アイキャッチ的に表示用のHTMLを追加する
+    
+    Parameters
+    ----------
+    md_content : str
+        Markdownテキスト
+        
+    Returns
+    -------
+    str
+        図の表示用HTMLを追加したMarkdownテキスト
+    """
+    figure_urls = extract_figure_urls(md_content)
+    if not figure_urls:
+        return md_content
+    
+    # 最も重要な図のURLがある場合、表示用のHTMLを追加
+    url, description = figure_urls[0]
+    
+    # タイトルを探す
+    title_match = re.search(r"^# (.+?)$", md_content, re.MULTILINE)
+    if title_match:
+        title = title_match.group(1)
+        
+        # アイキャッチ的な図のHTMLを作成
+        eyecatch_html = f'''
+<div class="paper-eyecatch" style="margin: 20px 0; padding: 15px; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); background-color: #f8f9fa;">
+  <div style="text-align: center;">
+    <img src="{url}" alt="Key Figure from {title}" style="max-width: 100%; height: auto; margin-bottom: 10px; border-radius: 4px;">
+    <p style="font-style: italic; color: #555;">{description}</p>
+  </div>
+</div>
+'''
+        
+        # タイトルの直後に図を挿入
+        md_content = re.sub(r"(^# .+?$)", r"\1\n\n" + eyecatch_html, md_content, flags=re.MULTILINE)
+        
+        # 8番目のセクションを探す
+        section_pattern = r"(## 8\. 論文の最も重要な図.*?)(?=\n##|\Z)"
+        section_match = re.search(section_pattern, md_content, re.DOTALL)
+        
+        if section_match:
+            # 8番目のセクションの内容を保持するが、図は表示しない
+            section_content = section_match.group(1)
+            md_content = re.sub(section_pattern, section_content, md_content, flags=re.DOTALL)
+    
+    return md_content
 
 
 @app.get("/", response_class=HTMLResponse)

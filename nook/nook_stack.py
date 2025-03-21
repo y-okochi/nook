@@ -31,7 +31,7 @@ class NookStack(Stack):
         # s3 bucket for storing the historical data
         s3_bucket = s3.Bucket(
             self,
-            id="NookBucket",
+            id="y2-okochi-NookBucket",
             removal_policy=RemovalPolicy.DESTROY,
             auto_delete_objects=True,
         )
@@ -39,7 +39,7 @@ class NookStack(Stack):
         # Create the common utils layer
         common_utils_layer = LayerVersion(
             self,
-            "CommonUtilsLayer",
+            "y2-okochi-CommonUtilsLayer",
             code=Code.from_asset(
                 os.path.join(root_dir, "common"),
                 bundling=BundlingOptions(
@@ -65,7 +65,7 @@ class NookStack(Stack):
             if app_name in [information_retriever_names.tech_feed]:
                 lambda_function = _lambda.DockerImageFunction(
                     self,
-                    id=app_name,
+                    id=f"y2-okochi-{app_name}",
                     code=_lambda.DockerImageCode.from_image_asset(
                         directory=os.path.join(root_dir, app_name)
                     ),
@@ -83,7 +83,7 @@ class NookStack(Stack):
                     )
                 lambda_function = Function(
                     self,
-                    id=app_name,
+                    id=f"y2-okochi-{app_name}",
                     runtime=Runtime.PYTHON_3_11,
                     code=Code.from_asset(
                         os.path.join(root_dir, app_name),
@@ -117,12 +117,12 @@ class NookStack(Stack):
                     layers=[common_utils_layer],
                 )
 
-            # UTC 0:00 (JST 9:00) から10分おき
+            # UTC 11:30 (JST 20:30) から10分おき
             daily_0_oclock_cron_rule = events.Rule(
                 self,
-                id=f"Daily0OClockRule{i}",
+                id=f"y2-okochi-Daily2030Rule{i}",
                 schedule=events.Schedule.cron(
-                    minute=f"{10 * i}", hour="0", month="*", week_day="*", year="*"
+                    minute=f"{(30 + 10 * i) % 60}", hour=f"{11 + (30 + 10 * i) // 60}", month="*", week_day="*", year="*"
                 ),
             )
 

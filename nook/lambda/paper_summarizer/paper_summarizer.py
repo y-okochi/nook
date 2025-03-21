@@ -83,6 +83,7 @@ class PaperInfo:
     url: str
     contents: str
     summary: str = field(init=False)
+    figure_urls: list[str] = field(default_factory=list)
 
 
 class PaperIdRetriever:
@@ -97,11 +98,13 @@ class PaperIdRetriever:
         """
         arxiv_ids = []
         try:
-            response = requests.get(
-                url=Config.hugging_face_api_url_format.format(
-                    date=(date.today() - timedelta(days=1)).strftime("%Y-%m-%d")
-                )
-            )
+            # 昨日の日付を使用
+            target_date = (date.today() - timedelta(days=1)).strftime("%Y-%m-%d")
+            url = Config.hugging_face_api_url_format.format(date=target_date)
+            print(f"Retrieving papers from Hugging Face for date: {target_date}")
+            print(f"URL: {url}")
+            
+            response = requests.get(url=url)
             response.raise_for_status()
             soup = BeautifulSoup(response.content, "html.parser")
 
@@ -110,6 +113,31 @@ class PaperIdRetriever:
                     href = a.get("href")
                     if re.match(rf"^/papers/{Config.arxiv_id_regex}$", href):
                         arxiv_ids.append(href.split("/")[-1])
+
+            print(f"Found {len(arxiv_ids)} papers on Hugging Face for date: {target_date}")
+            if len(arxiv_ids) == 0:
+                print("WARNING: No papers found on Hugging Face. This might be an issue with the website structure or the date.")
+                # 試しに今日の日付でも検索
+                today_date = date.today().strftime("%Y-%m-%d")
+                print(f"Trying with today's date: {today_date}")
+                today_url = Config.hugging_face_api_url_format.format(date=today_date)
+                print(f"URL: {today_url}")
+                
+                today_response = requests.get(url=today_url)
+                today_response.raise_for_status()
+                today_soup = BeautifulSoup(today_response.content, "html.parser")
+                
+                today_arxiv_ids = []
+                for article in today_soup.find_all("article"):
+                    for a in article.find_all("a"):
+                        href = a.get("href")
+                        if re.match(rf"^/papers/{Config.arxiv_id_regex}$", href):
+                            today_arxiv_ids.append(href.split("/")[-1])
+                
+                print(f"Found {len(today_arxiv_ids)} papers on Hugging Face for today's date: {today_date}")
+                if len(today_arxiv_ids) > 0:
+                    arxiv_ids = today_arxiv_ids
+                    print("Using today's papers instead.")
 
         except requests.exceptions.RequestException as e:
             print(f"Error when retrieving papers from Hugging Face: {e}")
@@ -129,9 +157,13 @@ class PaperSummarizer:
 
     def __call__(self) -> None:
         new_arxiv_ids = self._paper_id_retriever.retrieve_from_hugging_face()
+        print(f"Retrieved arXiv IDs from Hugging Face: {len(new_arxiv_ids)}")
+        print(f"Old arXiv IDs: {len(self._old_arxiv_ids)}")
+        
         new_arxiv_ids = self._remove_duplicates(new_arxiv_ids)
-
-        print(f"The number of new arXiv IDs: {len(new_arxiv_ids)}")
+        print(f"The number of new arXiv IDs after removing duplicates: {len(new_arxiv_ids)}")
+        if len(new_arxiv_ids) > 0:
+            print(f"Sample new arXiv IDs: {new_arxiv_ids[:3]}")
 
         markdowns = []
         # Process papers concurrently because it takes longer than Lambda's timeout
@@ -175,19 +207,26 @@ class PaperSummarizer:
         search = arxiv.Search(id_list=[arxiv_id])
         info = next(self._arxiv.results(search))
         contents = self._extract_body_text(arxiv_id)
-        return PaperInfo(
+        paper_info = PaperInfo(
             title=info.title,
             abstract=info.summary,
             url=info.entry_id,
             contents=contents,
         )
+        # 抽出した図のURLを設定
+        paper_info.figure_urls = getattr(self, 'figure_urls', [])
+        return paper_info
 
     def _summarize_paper_info(self, paper_info: PaperInfo) -> str:
+        # 図のURLをフォーマット
+        figure_urls_text = "\n".join(paper_info.figure_urls) if paper_info.figure_urls else "図は見つかりませんでした"
+        
         system_instruction = self._system_instruction_format.format(
             title=paper_info.title,
             url=paper_info.url,
             abstract=paper_info.abstract,
             contents=paper_info.contents,
+            figure_urls=figure_urls_text,
         )
 
         return self._client.generate_content(
@@ -209,12 +248,19 @@ class PaperSummarizer:
         date_str = date.today().strftime("%Y-%m-%d")
         key = Config.summary_index_s3_key_format.format(date=date_str)
         content = "\n\n---\n\n".join(summaries)
+        
+        print(f"Storing {len(summaries)} summaries to S3 key: {key}")
+        if len(summaries) == 0:
+            print("No summaries to store, skipping S3 upload")
+            return
+            
         try:
             self._s3.put_object(
                 Bucket=self._bucket_name,
                 Key=key,
                 Body=content,
             )
+            print(f"Successfully stored summaries to S3 key: {key}")
         except ClientError as e:
             print(f"Error putting object {key} into bucket {self._bucket_name}.")
             print(e)
@@ -287,6 +333,9 @@ class PaperSummarizer:
         response.encoding = response.apparent_encoding
         soup = BeautifulSoup(response.text, "html.parser")
 
+        # 論文の図のURLを抽出
+        self.figure_urls = self._extract_figure_urls(soup, arxiv_id)
+
         body = soup.body
         if body:
             for tag in body.find_all(["header", "nav", "footer", "script", "style"]):
@@ -318,6 +367,37 @@ class PaperSummarizer:
                 line = line.replace("Â", " ")
                 filtered_lines.append(line.strip())
         return "\n".join(filtered_lines)
+    
+    def _extract_figure_urls(self, soup: BeautifulSoup, arxiv_id: str) -> list[str]:
+        """
+        論文のHTMLから図の画像URLを抽出する
+        
+        Parameters
+        ----------
+        soup : BeautifulSoup
+            論文のHTMLをパースしたBeautifulSoupオブジェクト
+        arxiv_id : str
+            論文のarXiv ID
+            
+        Returns
+        -------
+        list[str]
+            図の画像URLのリスト
+        """
+        figure_urls = []
+        
+        # 画像タグを検索
+        for img in soup.find_all("img"):
+            src = img.get("src")
+            if src and (src.endswith(".png") or src.endswith(".jpg") or src.endswith(".jpeg") or src.endswith(".gif")):
+                # 相対パスの場合は絶対パスに変換
+                if src.startswith("/"):
+                    src = f"https://arxiv.org{src}"
+                elif not src.startswith("http"):
+                    src = f"https://arxiv.org/html/{arxiv_id}/{src}"
+                figure_urls.append(src)
+        
+        return figure_urls
 
     @property
     def _system_instruction_format(self) -> str:
@@ -346,6 +426,11 @@ class PaperSummarizer:
             '''
             {contents}
             '''
+            
+            figure_urls
+            '''
+            {figure_urls}
+            '''
             """
         )
 
@@ -362,7 +447,7 @@ class PaperSummarizer:
             5. 技術的な詳細について。技術者が読むことを想定したトーンで
             6. コストや物理的な詳細について。例えばトレーニングに使用したGPUの数や時間、データセット、モデルのサイズなど
             7. 参考文献のうち、特に参照すべきもの
-            8. この論文を140字以内のツイートで要約すると？
+            8. 論文の最も重要な図のURLを1つだけ挙げ、その図が何を表しているか説明してください
 
             フォーマットは以下の通りで、markdown形式で回答してください。このフォーマットに沿った文言以外の出力は不要です。
             なお、数式は表示が崩れがちで面倒なので、説明に数式を使うときは、代わりにPython風の疑似コードを書いてください。
@@ -387,14 +472,24 @@ class PaperSummarizer:
 
 
 def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
+    print("Lambda function invoked with event:")
     pprint(event)
 
     try:
+        # イベントソースのチェック
         if event.get("source") == "aws.events":
+            print("Event source is aws.events, proceeding with paper summarization")
             paper_summarizer_ = PaperSummarizer()
             paper_summarizer_()
-        return {"statusCode": 200}
+            return {"statusCode": 200, "message": "Paper summarization completed successfully"}
+        else:
+            print(f"WARNING: Event source is not aws.events: {event.get('source')}")
+            print("Forcing paper summarization anyway for debugging purposes")
+            paper_summarizer_ = PaperSummarizer()
+            paper_summarizer_()
+            return {"statusCode": 200, "message": "Paper summarization completed (forced execution)"}
     except Exception as e:
+        print("ERROR: Exception occurred during paper summarization:")
         pprint(traceback.format_exc())
         pprint(e)
-        return {"statusCode": 500}
+        return {"statusCode": 500, "error": str(e)}
